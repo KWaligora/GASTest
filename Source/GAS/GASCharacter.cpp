@@ -1,13 +1,14 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
 #include "GASCharacter.h"
-#include "GASProjectile.h"
 #include "Animation/AnimInstance.h"
 #include "Camera/CameraComponent.h"
 #include "Components/CapsuleComponent.h"
 #include "EnhancedInputComponent.h"
 #include "EnhancedInputSubsystems.h"
-#include "Blueprint/UserWidget.h"
+#include "GASAbilitySystemComponent.h"
+#include "Abilities/GASGameplayAbility.h"
+#include "Attributes/GASCharacterAttributeSet.h"
 
 
 //////////////////////////////////////////////////////////////////////////
@@ -36,6 +37,11 @@ AGASCharacter::AGASCharacter()
 	//Mesh1P->SetRelativeRotation(FRotator(0.9f, -19.19f, 5.2f));
 	Mesh1P->SetRelativeLocation(FVector(-30.f, 0.f, -150.f));
 
+	GASAbilitySystemComponent = CreateDefaultSubobject<UGASAbilitySystemComponent>(TEXT("AbilitySystemComponent"));
+	GASAbilitySystemComponent->SetIsReplicated(true);
+	GASAbilitySystemComponent->SetReplicationMode(EGameplayEffectReplicationMode::Mixed);
+
+	GASAttributeSet = CreateDefaultSubobject<UGASCharacterAttributeSet>(TEXT("Attributes"));
 }
 
 void AGASCharacter::BeginPlay()
@@ -69,6 +75,12 @@ void AGASCharacter::SetupPlayerInputComponent(class UInputComponent* PlayerInput
 
 		//Looking
 		EnhancedInputComponent->BindAction(LookAction, ETriggerEvent::Triggered, this, &AGASCharacter::Look);
+	}
+
+	if (IsValid(GASAbilitySystemComponent) && IsValid(InputComponent))
+	{
+		const FGameplayAbilityInputBinds Binds("Confirm", "Cancel", "EGASAbilityInputID", static_cast<int32>(EGASAbilityInputID::Confirm), static_cast<int32>(EGASAbilityInputID::Cancel));
+		GASAbilitySystemComponent->BindAbilityActivationToInputComponent(InputComponent, Binds);
 	}
 }
 
@@ -107,4 +119,67 @@ void AGASCharacter::SetHasRifle(bool bNewHasRifle)
 bool AGASCharacter::GetHasRifle()
 {
 	return bHasRifle;
+}
+
+UAbilitySystemComponent* AGASCharacter::GetAbilitySystemComponent() const
+{
+	return GASAbilitySystemComponent;
+}
+
+void AGASCharacter::InitializeAttributes()
+{
+	if (IsValid(GASAbilitySystemComponent) && IsValid(DefaultAttributeEffect))
+	{
+		FGameplayEffectContextHandle EffectContextHandle = GASAbilitySystemComponent->MakeEffectContext();
+		EffectContextHandle.AddSourceObject(this);
+
+		FGameplayEffectSpecHandle SpecHandle = GASAbilitySystemComponent->MakeOutgoingSpec(DefaultAttributeEffect, 1, EffectContextHandle);
+
+		if (SpecHandle.IsValid())
+		{
+			GASAbilitySystemComponent->ApplyGameplayEffectSpecToSelf(*SpecHandle.Data.Get());
+		}
+	}
+}
+
+void AGASCharacter::GiveStartingAbilities()
+{
+	if (HasAuthority() && IsValid(GASAbilitySystemComponent))
+	{
+		for (TSubclassOf<UGASGameplayAbility> GameplayAbility : DefaultAbilities)
+		{
+			GASAbilitySystemComponent->GiveAbility(FGameplayAbilitySpec(GameplayAbility, 1, static_cast<int32>(GameplayAbility.GetDefaultObject()->AbilityInputID), this));
+		}
+	}
+}
+
+void AGASCharacter::PossessedBy(AController* NewController)
+{
+	Super::PossessedBy(NewController);
+
+	if (IsValid(GASAbilitySystemComponent))
+	{
+		//Init on Server
+		GASAbilitySystemComponent->InitAbilityActorInfo(this, this);
+		InitializeAttributes();
+		GiveStartingAbilities();
+	}	
+}
+
+void AGASCharacter::OnRep_PlayerState()
+{
+	Super::OnRep_PlayerState();
+
+	if (IsValid(GASAbilitySystemComponent))
+	{
+		//Init on Client
+		GASAbilitySystemComponent->InitAbilityActorInfo(this, this);
+		InitializeAttributes();
+
+		if (IsValid(InputComponent))
+		{
+			const FGameplayAbilityInputBinds Binds("Confirm", "Cancel", "EGASAbilityInputID", static_cast<int32>(EGASAbilityInputID::Confirm), static_cast<int32>(EGASAbilityInputID::Cancel));
+			GASAbilitySystemComponent->BindAbilityActivationToInputComponent(InputComponent, Binds);
+		}
+	}		
 }

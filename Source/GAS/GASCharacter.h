@@ -3,10 +3,15 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "AbilitySystemInterface.h"
 #include "GameFramework/Character.h"
 #include "InputActionValue.h"
 #include "GASCharacter.generated.h"
 
+class UGASGameplayAbility;
+class UGameplayEffect;
+class UGASCharacterAttributeSet;
+class UGASAbilitySystemComponent;
 class UInputComponent;
 class USkeletalMeshComponent;
 class USceneComponent;
@@ -15,7 +20,7 @@ class UAnimMontage;
 class USoundBase;
 
 UCLASS(config=Game)
-class AGASCharacter : public ACharacter
+class AGASCharacter : public ACharacter, public IAbilitySystemInterface
 {
 	GENERATED_BODY()
 
@@ -26,7 +31,20 @@ public:
 
 	/** Bool for AnimBP to switch to another animation set */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Weapon)
-	bool bHasRifle;
+	bool bHasRifle;	
+
+protected:
+	UPROPERTY(BlueprintReadOnly, EditDefaultsOnly, Category="GAS")
+	TSubclassOf<UGameplayEffect> DefaultAttributeEffect;
+    	
+    UPROPERTY(EditDefaultsOnly, BlueprintReadOnly, Category="GAS")
+    TArray<TSubclassOf<UGASGameplayAbility>> DefaultAbilities;
+
+	UPROPERTY(Transient)
+	UGASAbilitySystemComponent* GASAbilitySystemComponent;
+
+	UPROPERTY(Transient)
+	UGASCharacterAttributeSet* GASAttributeSet;
 	
 private:
 	/** Pawn mesh: 1st person view (arms; seen only by self) */
@@ -58,6 +76,14 @@ public:
 	/** Getter for the bool */
 	UFUNCTION(BlueprintCallable, Category = Weapon)
 	bool GetHasRifle();
+
+	UAbilitySystemComponent* GetAbilitySystemComponent() const override;
+
+	void InitializeAttributes();
+	void GiveStartingAbilities();
+
+	virtual void PossessedBy(AController* NewController) override;
+	virtual void OnRep_PlayerState() override;
 	
 	/** Returns Mesh1P subobject **/
 	USkeletalMeshComponent* GetMesh1P() const { return Mesh1P; }
